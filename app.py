@@ -23,7 +23,6 @@ st.sidebar.button("🗑️ Clear All Inputs", on_click=reset_callback, use_conta
 st.title("Portfolio Optimizer")
 
 # --- 3. THE INTERACTIVE GRID ---
-st.header("Portfolio Inputs")
 col_name, col_edge, col_corr = st.columns([1, 1, 2])
 
 market_names = []
