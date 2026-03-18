@@ -9,23 +9,31 @@ st.set_page_config(page_title="Polyalpha Suite", layout="wide")
 
 # --- 2. GLOBAL SIDEBAR ---
 st.sidebar.header("🌍 Global Control")
+# This variable is shared across both tabs
 bankroll = st.sidebar.number_input("Total Bankroll ($)", 100, 1000000, 10000, step=100)
 
 def reset_all():
     # Clear the session state to wipe all inputs
     for key in list(st.session_state.keys()):
         del st.session_state[key]
+    # Note: st.rerun() is removed here to avoid the 'no-op' error.
+    # Streamlit will automatically rerun after the callback finishes.
 
 st.sidebar.divider()
 st.sidebar.button("🗑️ Clear All Inputs", on_click=reset_all, use_container_width=True)
 st.sidebar.caption("Clears all market names, sliders, and calculations in both tabs.")
 
 # --- 3. HELPER FUNCTIONS ---
+
 def create_dynamic_gauge(label, value, max_val):
+    """Gauges that shift color based on 'Opportunity' vs 'Noise'"""
     is_entropy = "Entropy" in label
+    
     if is_entropy:
+        # For Entropy: Low (0.0) is Certainty/Green, High (1.0) is Noise/Red
         color = "green" if value < 0.4 else "orange" if value < 0.7 else "red"
     else:
+        # For Gap and Confidence: High is Opportunity/Green, Low is Sync/Red
         threshold = max_val * 0.3
         color = "red" if value < threshold else "green"
 
@@ -50,6 +58,7 @@ tab1, tab2 = st.tabs(["📈 Optimal Allocation", "🔍 Divergence Pro Scanner"])
 # --- TAB 1: PORTFOLIO OPTIMIZER ---
 with tab1:
     st.title("Portfolio Optimizer")
+    
     with st.expander("🛠️ Optimizer Settings", expanded=True):
         c1, c2 = st.columns(2)
         num_markets = c1.number_input("Number of Markets", 2, 10, 3)
@@ -81,6 +90,7 @@ with tab1:
                 c_val = st.slider(f"{market_names[i]}/{market_names[j]}", -1.0, 1.0, 0.0, 0.1, key=f"corr_{i}_{j}")
                 corr_matrix[i, j] = corr_matrix[j, i] = c_val
 
+    # Optimization Engine
     edges = np.array(market_edges)
     portfolio = np.array([1/num_markets] * num_markets)
     if np.any(edges != 0):
@@ -91,8 +101,13 @@ with tab1:
     st.divider()
     res_col, graph_col = st.columns([1, 1.2])
     with res_col:
-        results_df = pd.DataFrame({"Market": market_names, "Allocation": (portfolio * 100).round(2), "Bet ($)": (portfolio * bankroll).round(2)})
+        results_df = pd.DataFrame({
+            "Market": market_names, 
+            "Allocation": (portfolio * 100).round(2), 
+            "Bet ($)": (portfolio * bankroll).round(2)
+        })
         st.table(results_df.style.format({"Bet ($)": "${:,.2f}", "Allocation": "{:.2f}%"}))
+
     with graph_col:
         r_val = list(results_df["Allocation"]) + [results_df["Allocation"][0]]
         t_val = list(results_df["Market"]) + [results_df["Market"][0]]
@@ -103,36 +118,42 @@ with tab1:
 # --- TAB 2: DIVERGENCE SCANNER ---
 with tab2:
     st.header("🔍 Divergence Pro Scanner")
+    
     with st.expander("📝 Manual Market Inputs", expanded=True):
         col1, col2 = st.columns(2)
         with col1:
             lead_n = st.text_input("Lead Market Name", placeholder="e.g., GOP Senate", key="l_name")
-            p1 = st.slider("Lead Price (Probability)", 0.01, 0.99, 0.67, 0.01)
+            p1 = st.slider("Lead Price (Probability)", 0.01, 0.99, 0.50, 0.01)
         with col2:
             lag_n = st.text_input("Laggard Market Name", placeholder="e.g., PA Senate", key="g_name")
-            p2 = st.slider("Laggard Price (Probability)", 0.01, 0.99, 0.52, 0.01)
+            p2 = st.slider("Laggard Price (Probability)", 0.01, 0.99, 0.50, 0.01)
             liq_lag = st.number_input("Laggard Liquidity ($)", 0, 1000000, 1000, step=100)
 
+    # Math Logic
     h_lead = entropy([p1, 1-p1], base=2)
     kl_div = entropy([p1, 1-p1], [p2, 1-p2], base=2)
     conf = kl_div * (1 - h_lead)
     
+    # Kelly Sizing Logic
     edge = p1 - p2
     if edge > 0:
         odds = (1 - p2) / p2
         kelly_f = edge / odds
+        # Formula: Full Kelly * 0.25 (Safety) * Certainty (1-H)
         raw_kelly_bet = kelly_f * bankroll * 0.25 * (1 - h_lead)
         rec_bet = min(raw_kelly_bet, liq_lag)
     else:
         raw_kelly_bet = 0
         rec_bet = 0
 
+    # UI Gauges
     st.divider()
     g1, g2, g3 = st.columns(3)
     g1.plotly_chart(create_dynamic_gauge("Lead Entropy (Noise)", h_lead, 1.0), use_container_width=True)
     g2.plotly_chart(create_dynamic_gauge("KL-Gap (Divergence)", kl_div, 0.5), use_container_width=True)
     g3.plotly_chart(create_dynamic_gauge("Confidence Score", conf, 0.2), use_container_width=True)
 
+    # Verdict
     st.divider()
     v1, v2 = st.columns(2)
     with v1:
@@ -147,21 +168,31 @@ with tab2:
         st.subheader("💰 Action Plan")
         if rec_bet > 0:
             st.metric("Recommended Bet", f"${rec_bet:,.2f}")
-            st.caption(f"🛡️ **Risk Note:** This bet uses a **25% Fractional Kelly** multiplier, further reduced by a **{ (1-h_lead)*100 :.1f}% Certainty Factor** based on Lead Entropy.")
+            # The 25% Kelly Note you requested:
+            st.caption(f"🛡️ **Risk Note:** This bet uses a **25% Fractional Kelly** multiplier for safety, further reduced by a **{ (1-h_lead)*100 :.1f}% Certainty Factor** based on Lead Entropy.")
+            
+            # SLIPPAGE WARNING
             if raw_kelly_bet > liq_lag:
-                st.error(f"⚠️ **SLIPPAGE WARNING:** Optimal bet is ${raw_kelly_bet:,.2f}, but liquidity is only ${liq_lag:,.2f}.")
+                st.error(f"⚠️ **SLIPPAGE WARNING:** Optimal bet is ${raw_kelly_bet:,.2f}, but liquidity is only ${liq_lag:,.2f}. Capping bet.")
         else:
-            st.write("Hold. No trade recommended.")
+            st.write("Hold. No trade recommended based on current inputs.")
 
+    # --- TRADING RULES & LIQUIDITY GUIDE ---
     st.divider()
     with st.expander("📜 Essential Trading Rules & Liquidity Guide"):
         st.markdown(f"""
         ### 1. How to find Laggard Liquidity
-        Open the **{lag_n if lag_n else 'Laggard'}** market on Polymarket. Look at the **Order Book** 'Asks' (SELL orders). Find the total dollar depth at the current best price.
+        To get the correct **Liquidity ($)** value:
+        1. Open the **{lag_n if lag_n else 'Laggard'}** market on Polymarket.
+        2. Look at the **Order Book** 'Asks' (the SELL orders for YES).
+        3. Find the total dollar depth at the current best price.
+        
         ### 2. The 'Intuitive Link' Rule
-        Only scan markets logically tethered (e.g., GOP Senate vs. GOP House).
+        Only scan markets that move on the same information. Unrelated markets will show "False Positive" gaps.
+
         ### 3. The Lead Efficiency Rule
-        If **Lead Entropy** is Red (> 0.7), the Lead is noisy. Do not trust the signal.
+        If **Lead Entropy** is Red (> 0.7), the Lead is just guessing. High entropy signals are usually just noise.
+
         ### 4. Slippage Protection
-        Do not exceed the **Recommended Bet** to avoid moving the market against yourself.
+        The **Recommended Bet** is automatically capped by the Liquidity you provide. Do not exceed this amount to avoid moving the market against yourself.
         """)
