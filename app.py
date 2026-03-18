@@ -53,7 +53,7 @@ def create_dynamic_gauge(label, value, max_val):
     return fig
 
 # --- 4. MAIN NAVIGATION ---
-tab1, tab2 = st.tabs(["Optimal Allocation", "Divergence Pro Scanner"])
+tab1, tab2 = st.tabs(["Optimal Allocation", "Divergence Scanner"])
 
 # --- TAB 1: PORTFOLIO OPTIMIZER ---
 with tab1:
