@@ -2,110 +2,166 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from scipy.stats import entropy
 
-st.set_page_config(page_title="Portfolio Optimizer", layout="wide")
+# --- 1. CONFIGURATION ---
+st.set_page_config(page_title="Polyalpha Suite", layout="wide")
 
-# --- 1. RESET LOGIC ---
-def reset_callback():
-    for key in st.session_state.keys():
-        if any(key.startswith(prefix) for prefix in ["name_", "edge_", "corr_"]):
-            if "name" in key: st.session_state[key] = ""
-            elif "edge" in key: st.session_state[key] = 0.00
-            elif "corr" in key: st.session_state[key] = 0.0
+# --- 2. GLOBAL SIDEBAR ---
+st.sidebar.header("🌍 Global Control")
+bankroll = st.sidebar.number_input("Total Bankroll ($)", 100, 1000000, 10000, step=100)
 
-# --- 2. SIDEBAR ---
-st.sidebar.header("⚙️ Strategy Settings")
-num_markets = st.sidebar.number_input("Number of Markets", 2, 10, 3)
-bankroll = st.sidebar.number_input("Total Bankroll ($)", 100, 1000000, 10000)
-risk_penalty = st.sidebar.slider("Risk Aversion", 0.0, 1.0, 0.1)
-st.sidebar.button("🗑️ Clear All Inputs", on_click=reset_callback, use_container_width=True)
+def reset_all():
+    # Clear the session state to wipe all inputs
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
 
-st.title("Portfolio Optimizer")
+st.sidebar.divider()
+st.sidebar.button("🗑️ Clear All Inputs", on_click=reset_all, use_container_width=True)
+st.sidebar.caption("Clears all market names, sliders, and calculations in both tabs.")
 
-# --- 3. THE INTERACTIVE GRID ---
-col_name, col_edge, col_corr = st.columns([1, 1, 2])
+# --- 3. HELPER FUNCTIONS ---
+def create_dynamic_gauge(label, value, max_val):
+    is_entropy = "Entropy" in label
+    if is_entropy:
+        color = "green" if value < 0.4 else "orange" if value < 0.7 else "red"
+    else:
+        threshold = max_val * 0.3
+        color = "red" if value < threshold else "green"
 
-market_names = []
-market_edges = []
+    fig = go.Figure(go.Indicator(
+        mode = "gauge+number",
+        value = value,
+        title = {'text': label, 'font': {'size': 18}},
+        gauge = {
+            'axis': {'range': [0, max_val], 'tickwidth': 1},
+            'bar': {'color': color},
+            'bgcolor': "white",
+            'borderwidth': 2,
+            'bordercolor': "gray",
+        }
+    ))
+    fig.update_layout(height=240, margin=dict(l=30, r=30, t=50, b=20))
+    return fig
 
-with col_name:
-    st.subheader("1. Markets")
-    st.caption("Event Names")
-    for i in range(num_markets):
-        n = st.text_input(f"Market {i+1}", placeholder=f"Event {i+1}", key=f"name_{i}")
-        market_names.append(n if n else f"M{i+1}")
+# --- 4. MAIN NAVIGATION ---
+tab1, tab2 = st.tabs(["📈 Optimal Allocation", "🔍 Divergence Pro Scanner"])
 
-with col_edge:
-    st.subheader("2. Your Edge")
-    st.caption("Expected Profit %")
-    for i in range(num_markets):
-        e_val = st.slider(f"Edge: {market_names[i]}", -0.50, 0.50, 0.00, 0.01, key=f"edge_{i}")
-        market_edges.append(e_val)
+# --- TAB 1: PORTFOLIO OPTIMIZER ---
+with tab1:
+    st.title("Portfolio Optimizer")
+    with st.expander("🛠️ Optimizer Settings", expanded=True):
+        c1, c2 = st.columns(2)
+        num_markets = c1.number_input("Number of Markets", 2, 10, 3)
+        risk_penalty = c2.slider("Risk Aversion", 0.0, 1.0, 0.1)
 
-with col_corr:
-    st.subheader("3. Correlations (-1 to 1)")
-    st.caption("How markets move together")
-    corr_matrix = np.eye(num_markets)
+    st.header("Portfolio Inputs")
+    col_name, col_edge, col_corr = st.columns([1, 1, 2])
+    market_names, market_edges = [], []
+
+    with col_name:
+        st.subheader("1. Markets")
+        for i in range(num_markets):
+            n = st.text_input(f"Market {i+1}", placeholder=f"Event {i+1}", key=f"name_{i}")
+            market_names.append(n if n else f"M{i+1}")
+
+    with col_edge:
+        st.subheader("2. Your Edge")
+        for i in range(num_markets):
+            e_val = st.slider(f"Edge: {market_names[i]}", -0.50, 0.50, 0.00, 0.01, key=f"edge_{i}")
+            market_edges.append(e_val)
+
+    with col_corr:
+        st.subheader("3. Correlations")
+        corr_matrix = np.eye(num_markets)
+        pairs = [(i, j) for i in range(num_markets) for j in range(i + 1, num_markets)]
+        sub_cols = st.columns(3)
+        for idx, (i, j) in enumerate(pairs):
+            with sub_cols[idx % 3]:
+                c_val = st.slider(f"{market_names[i]}/{market_names[j]}", -1.0, 1.0, 0.0, 0.1, key=f"corr_{i}_{j}")
+                corr_matrix[i, j] = corr_matrix[j, i] = c_val
+
+    edges = np.array(market_edges)
+    portfolio = np.array([1/num_markets] * num_markets)
+    if np.any(edges != 0):
+        for k in range(100):
+            gradient = edges - (risk_penalty * np.dot(corr_matrix, portfolio))
+            portfolio = (1 - (2/(k+2))) * portfolio + (2/(k+2)) * (np.eye(num_markets)[np.argmax(gradient)])
+
+    st.divider()
+    res_col, graph_col = st.columns([1, 1.2])
+    with res_col:
+        results_df = pd.DataFrame({"Market": market_names, "Allocation": (portfolio * 100).round(2), "Bet ($)": (portfolio * bankroll).round(2)})
+        st.table(results_df.style.format({"Bet ($)": "${:,.2f}", "Allocation": "{:.2f}%"}))
+    with graph_col:
+        r_val = list(results_df["Allocation"]) + [results_df["Allocation"][0]]
+        t_val = list(results_df["Market"]) + [results_df["Market"][0]]
+        fig = go.Figure(data=[go.Scatterpolar(r=r_val, theta=t_val, fill='toself', line_color='#008080')])
+        fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), showlegend=False, height=400)
+        st.plotly_chart(fig, use_container_width=True)
+
+# --- TAB 2: DIVERGENCE SCANNER ---
+with tab2:
+    st.header("🔍 Divergence Pro Scanner")
+    with st.expander("📝 Manual Market Inputs", expanded=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            lead_n = st.text_input("Lead Market Name", placeholder="e.g., GOP Senate", key="l_name")
+            p1 = st.slider("Lead Price (Probability)", 0.01, 0.99, 0.67, 0.01)
+        with col2:
+            lag_n = st.text_input("Laggard Market Name", placeholder="e.g., PA Senate", key="g_name")
+            p2 = st.slider("Laggard Price (Probability)", 0.01, 0.99, 0.52, 0.01)
+            liq_lag = st.number_input("Laggard Liquidity ($)", 0, 1000000, 1000, step=100)
+
+    h_lead = entropy([p1, 1-p1], base=2)
+    kl_div = entropy([p1, 1-p1], [p2, 1-p2], base=2)
+    conf = kl_div * (1 - h_lead)
     
-    pairs = []
-    for i in range(num_markets):
-        for j in range(i + 1, num_markets):
-            pairs.append((i, j))
-    
-    sub_cols = st.columns(2 if num_markets < 5 else 3)
-    
-    for idx, (i, j) in enumerate(pairs):
-        with sub_cols[idx % len(sub_cols)]:
-            c_val = st.slider(f"{market_names[i]} / {market_names[j]}", -1.0, 1.0, 0.0, 0.1, key=f"corr_{i}_{j}")
-            corr_matrix[i, j] = c_val
-            corr_matrix[j, i] = c_val
+    edge = p1 - p2
+    if edge > 0:
+        odds = (1 - p2) / p2
+        kelly_f = edge / odds
+        raw_kelly_bet = kelly_f * bankroll * 0.25 * (1 - h_lead)
+        rec_bet = min(raw_kelly_bet, liq_lag)
+    else:
+        raw_kelly_bet = 0
+        rec_bet = 0
 
-# --- 4. OPTIMIZATION ENGINE ---
-edges = np.array(market_edges)
-portfolio = np.array([1/num_markets] * num_markets)
+    st.divider()
+    g1, g2, g3 = st.columns(3)
+    g1.plotly_chart(create_dynamic_gauge("Lead Entropy (Noise)", h_lead, 1.0), use_container_width=True)
+    g2.plotly_chart(create_dynamic_gauge("KL-Gap (Divergence)", kl_div, 0.5), use_container_width=True)
+    g3.plotly_chart(create_dynamic_gauge("Confidence Score", conf, 0.2), use_container_width=True)
 
-if np.any(edges != 0):
-    for k in range(100):
-        gradient = edges - (risk_penalty * np.dot(corr_matrix, portfolio))
-        best_market_index = np.argmax(gradient)
-        gamma = 2 / (k + 2)
-        target = np.zeros(num_markets)
-        target[best_market_index] = 1.0
-        portfolio = (1 - gamma) * portfolio + gamma * target
+    st.divider()
+    v1, v2 = st.columns(2)
+    with v1:
+        st.subheader("💡 Analysis")
+        if conf > 0.04:
+            st.success(f"🔥 **OPPORTUNITY:** {lead_n} shows high divergence.")
+            st.balloons()
+        else:
+            st.info("✅ Markets are effectively in sync.")
+            
+    with v2:
+        st.subheader("💰 Action Plan")
+        if rec_bet > 0:
+            st.metric("Recommended Bet", f"${rec_bet:,.2f}")
+            st.caption(f"🛡️ **Risk Note:** This bet uses a **25% Fractional Kelly** multiplier, further reduced by a **{ (1-h_lead)*100 :.1f}% Certainty Factor** based on Lead Entropy.")
+            if raw_kelly_bet > liq_lag:
+                st.error(f"⚠️ **SLIPPAGE WARNING:** Optimal bet is ${raw_kelly_bet:,.2f}, but liquidity is only ${liq_lag:,.2f}.")
+        else:
+            st.write("Hold. No trade recommended.")
 
-# --- 5. VISUAL OUTPUTS ---
-st.divider()
-res_col, graph_col = st.columns([1, 1.2])
-
-with res_col:
-    st.subheader("Optimal Allocation")
-    results_df = pd.DataFrame({
-        "Market": market_names,
-        "Allocation": (portfolio * 100).round(2),
-        "Bet ($)": (portfolio * bankroll).round(2)
-    })
-    st.table(results_df.style.format({"Bet ($)": "${:,.2f}", "Allocation": "{:.2f}%"}))
-
-with graph_col:
-    st.subheader("Allocation Radar")
-    radar_r = list(results_df["Allocation"])
-    radar_theta = list(results_df["Market"])
-    radar_r.append(radar_r[0])
-    radar_theta.append(radar_theta[0])
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatterpolar(r=radar_r, theta=radar_theta, fill='toself', line_color='#008080'))
-    
-    fig.update_layout(
-        polar=dict(
-            radialaxis=dict(
-                visible=True, 
-                range=[0, 100],
-                tickfont=dict(color="#90EE90", size=10) 
-            ),
-            bgcolor="rgba(0,0,0,0)"
-        ), 
-        showlegend=False, 
-        height=450
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    st.divider()
+    with st.expander("📜 Essential Trading Rules & Liquidity Guide"):
+        st.markdown(f"""
+        ### 1. How to find Laggard Liquidity
+        Open the **{lag_n if lag_n else 'Laggard'}** market on Polymarket. Look at the **Order Book** 'Asks' (SELL orders). Find the total dollar depth at the current best price.
+        ### 2. The 'Intuitive Link' Rule
+        Only scan markets logically tethered (e.g., GOP Senate vs. GOP House).
+        ### 3. The Lead Efficiency Rule
+        If **Lead Entropy** is Red (> 0.7), the Lead is noisy. Do not trust the signal.
+        ### 4. Slippage Protection
+        Do not exceed the **Recommended Bet** to avoid moving the market against yourself.
+        """)
