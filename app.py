@@ -22,14 +22,22 @@ st.sidebar.caption("Clears all market names, sliders, and calculations in both t
 # --- 3. HELPER FUNCTIONS ---
 
 def create_dynamic_gauge(label, value, max_val):
-    """Minimal dark-themed gauges"""
+    """Minimal dark-themed gauges with user-defined thresholds"""
     is_entropy = "Entropy" in label
+    is_confidence = "Confidence" in label
+    is_gap = "Gap" in label
     
     if is_entropy:
-        color = "#00cc96" if value < 0.4 else "#f39c12" if value < 0.7 else "#ef553b"
+        # Green < 0.4 | Yellow >= 0.4 | Red > 0.65
+        color = "#00cc96" if value < 0.4 else "#f39c12" if value <= 0.65 else "#ef553b"
+    elif is_gap:
+        # Red < 0.1 | Yellow 0.1 - 0.2 | Green > 0.2
+        color = "#ef553b" if value < 0.1 else "#f39c12" if value <= 0.2 else "#00cc96"
+    elif is_confidence:
+        # High-Quality threshold (0.04)
+        color = "#00cc96" if value >= 0.04 else "#ef553b"
     else:
-        threshold = max_val * 0.3
-        color = "#ef553b" if value < threshold else "#00cc96"
+        color = "gray"
 
     fig = go.Figure(go.Indicator(
         mode = "gauge+number",
