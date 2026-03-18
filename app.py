@@ -196,22 +196,26 @@ with tab2:
         else:
             st.write("Hold. No trade recommended.")
 
-    # --- TRADING RULES ---
+    # --- TRADING RULES & LIQUIDITY GUIDE ---
     st.divider()
-    with st.expander("Essential Trading Rules & Liquidity Guide"):
+    with st.expander("📜 Essential Trading Rules & Liquidity Guide"):
         st.markdown(f"""
-        **1. How to find Laggard Liquidity**
-        To get the correct Liquidity ($) value:
-        1. Open the {lag_n if lag_n else 'Laggard'} market on Polymarket.
-        2. Look at the Order Book 'Asks'.
-        3. Find the total dollar depth at the current best price.
+        ### 1. How to find Laggard Liquidity
+        To get the correct **Liquidity ($)** value for this tool:
+        1. Open the **{lag_n if lag_n else 'Laggard'}** market on Polymarket.
+        2. Look at the **Order Book** (usually on the right or bottom).
+        3. Find the **'Asks'** (the SELL orders for YES).
+        4. Look at the **Depth** at the best price. 
+           * *Example:* If there are 1,000 shares at \$0.52, your liquidity is **$520**.
         
-        **2. The Intuitive Link Rule**
-        Only scan markets that move on the same information. Unrelated markets will show false positive gaps.
+        
 
-        **3. The Lead Efficiency Rule**
-        If Lead Entropy is Red (> 0.7), the Lead is noisy. High entropy signals are usually just noise.
+        ### 2. The 'Intuitive Link' Rule
+        Only scan markets that move on the same information (e.g., GOP Senate vs. GOP House). Unrelated markets will show "False Positive" gaps.
 
-        **4. Slippage Protection**
-        The Recommended Bet is automatically capped by the Liquidity you provide. Do not exceed this amount.
+        ### 3. The Lead Efficiency Rule
+        If **Lead Entropy** is Red (> 0.7), the Lead is just guessing. Even a large price gap is likely meaningless noise.
+
+        ### 4. Slippage Protection
+        If the **Slippage Warning** appears, it means your theoretical "edge" is larger than the market can handle. Do not exceed the **Recommended Bet**, or you will become the one moving the market price!
         """)
