@@ -8,58 +8,58 @@ from scipy.stats import entropy
 st.set_page_config(page_title="Polyalpha Suite", layout="wide")
 
 # --- 2. GLOBAL SIDEBAR ---
-st.sidebar.header("🌍 Global Control")
-# This variable is shared across both tabs
+st.sidebar.header("Global Control")
 bankroll = st.sidebar.number_input("Total Bankroll ($)", 100, 1000000, 10000, step=100)
 
 def reset_all():
-    # Clear the session state to wipe all inputs
     for key in list(st.session_state.keys()):
         del st.session_state[key]
-    # Note: st.rerun() is removed here to avoid the 'no-op' error.
-    # Streamlit will automatically rerun after the callback finishes.
 
 st.sidebar.divider()
-st.sidebar.button("🗑️ Clear All Inputs", on_click=reset_all, use_container_width=True)
+st.sidebar.button("Clear All Inputs", on_click=reset_all, use_container_width=True)
 st.sidebar.caption("Clears all market names, sliders, and calculations in both tabs.")
 
 # --- 3. HELPER FUNCTIONS ---
 
 def create_dynamic_gauge(label, value, max_val):
-    """Gauges that shift color based on 'Opportunity' vs 'Noise'"""
+    """Minimal dark-themed gauges"""
     is_entropy = "Entropy" in label
     
     if is_entropy:
-        # For Entropy: Low (0.0) is Certainty/Green, High (1.0) is Noise/Red
-        color = "green" if value < 0.4 else "orange" if value < 0.7 else "red"
+        color = "#00cc96" if value < 0.4 else "#f39c12" if value < 0.7 else "#ef553b"
     else:
-        # For Gap and Confidence: High is Opportunity/Green, Low is Sync/Red
         threshold = max_val * 0.3
-        color = "red" if value < threshold else "green"
+        color = "#ef553b" if value < threshold else "#00cc96"
 
     fig = go.Figure(go.Indicator(
         mode = "gauge+number",
         value = value,
-        title = {'text': label, 'font': {'size': 18}},
+        title = {'text': label, 'font': {'size': 18, 'color': 'white'}},
+        number = {'font': {'color': 'white'}},
         gauge = {
-            'axis': {'range': [0, max_val], 'tickwidth': 1},
+            'axis': {'range': [0, max_val], 'tickwidth': 1, 'tickcolor': 'gray'},
             'bar': {'color': color},
-            'bgcolor': "white",
-            'borderwidth': 2,
+            'bgcolor': "rgba(0,0,0,0)", 
+            'borderwidth': 1,
             'bordercolor': "gray",
         }
     ))
-    fig.update_layout(height=240, margin=dict(l=30, r=30, t=50, b=20))
+    fig.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        height=240, 
+        margin=dict(l=30, r=30, t=50, b=20)
+    )
     return fig
 
 # --- 4. MAIN NAVIGATION ---
-tab1, tab2 = st.tabs(["📈 Optimal Allocation", "🔍 Divergence Pro Scanner"])
+tab1, tab2 = st.tabs(["Optimal Allocation", "Divergence Pro Scanner"])
 
 # --- TAB 1: PORTFOLIO OPTIMIZER ---
 with tab1:
     st.title("Portfolio Optimizer")
     
-    with st.expander("🛠️ Optimizer Settings", expanded=True):
+    with st.expander("Optimizer Settings", expanded=True):
         c1, c2 = st.columns(2)
         num_markets = c1.number_input("Number of Markets", 2, 10, 3)
         risk_penalty = c2.slider("Risk Aversion", 0.0, 1.0, 0.1)
@@ -101,6 +101,7 @@ with tab1:
     st.divider()
     res_col, graph_col = st.columns([1, 1.2])
     with res_col:
+        st.subheader("Allocation Summary")
         results_df = pd.DataFrame({
             "Market": market_names, 
             "Allocation": (portfolio * 100).round(2), 
@@ -111,15 +112,37 @@ with tab1:
     with graph_col:
         r_val = list(results_df["Allocation"]) + [results_df["Allocation"][0]]
         t_val = list(results_df["Market"]) + [results_df["Market"][0]]
-        fig = go.Figure(data=[go.Scatterpolar(r=r_val, theta=t_val, fill='toself', line_color='#008080')])
-        fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), showlegend=False, height=400)
+        fig = go.Figure(data=[go.Scatterpolar(
+            r=r_val, 
+            theta=t_val, 
+            fill='toself', 
+            line_color='#00cc96',
+            fillcolor='rgba(0, 204, 150, 0.1)'
+        )])
+        fig.update_layout(
+            title={'text': "Portfolio Concentration Radar", 'y':0.9, 'x':0.5, 'xanchor': 'center', 'yanchor': 'top', 'font': {'color': 'white'}},
+            polar=dict(
+                bgcolor='rgba(0,0,0,0)',
+                radialaxis=dict(
+                    visible=True, 
+                    range=[0, 100], 
+                    tickfont={'color': '#00cc96'},
+                    gridcolor='rgba(255,255,255,0.05)' # Faint dark grid
+                ),
+                angularaxis=dict(gridcolor='rgba(255,255,255,0.05)', tickfont={'color': 'white'})
+            ),
+            showlegend=False, 
+            height=450,
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)'
+        )
         st.plotly_chart(fig, use_container_width=True)
 
 # --- TAB 2: DIVERGENCE SCANNER ---
 with tab2:
-    st.header("🔍 Divergence Pro Scanner")
+    st.header("Divergence Pro Scanner")
     
-    with st.expander("📝 Manual Market Inputs", expanded=True):
+    with st.expander("Manual Market Inputs", expanded=True):
         col1, col2 = st.columns(2)
         with col1:
             lead_n = st.text_input("Lead Market Name", placeholder="e.g., GOP Senate", key="l_name")
@@ -139,7 +162,6 @@ with tab2:
     if edge > 0:
         odds = (1 - p2) / p2
         kelly_f = edge / odds
-        # Formula: Full Kelly * 0.25 (Safety) * Certainty (1-H)
         raw_kelly_bet = kelly_f * bankroll * 0.25 * (1 - h_lead)
         rec_bet = min(raw_kelly_bet, liq_lag)
     else:
@@ -157,42 +179,39 @@ with tab2:
     st.divider()
     v1, v2 = st.columns(2)
     with v1:
-        st.subheader("💡 Analysis")
+        st.subheader("Analysis")
         if conf > 0.04:
-            st.success(f"🔥 **OPPORTUNITY:** {lead_n} shows high divergence.")
-            st.balloons()
+            st.success(f"Opportunity: {lead_n} shows high divergence.")
         else:
-            st.info("✅ Markets are effectively in sync.")
+            st.info("Markets are effectively in sync.")
             
     with v2:
-        st.subheader("💰 Action Plan")
+        st.subheader("Action Plan")
         if rec_bet > 0:
             st.metric("Recommended Bet", f"${rec_bet:,.2f}")
-            # The 25% Kelly Note you requested:
-            st.caption(f"🛡️ **Risk Note:** This bet uses a **25% Fractional Kelly** multiplier for safety, further reduced by a **{ (1-h_lead)*100 :.1f}% Certainty Factor** based on Lead Entropy.")
+            st.caption(f"Risk Note: This bet uses a 25% Fractional Kelly multiplier, further reduced by a { (1-h_lead)*100 :.1f}% Certainty Factor.")
             
-            # SLIPPAGE WARNING
             if raw_kelly_bet > liq_lag:
-                st.error(f"⚠️ **SLIPPAGE WARNING:** Optimal bet is ${raw_kelly_bet:,.2f}, but liquidity is only ${liq_lag:,.2f}. Capping bet.")
+                st.error(f"Slippage Warning: Optimal bet is ${raw_kelly_bet:,.2f}, but liquidity is only ${liq_lag:,.2f}.")
         else:
-            st.write("Hold. No trade recommended based on current inputs.")
+            st.write("Hold. No trade recommended.")
 
-    # --- TRADING RULES & LIQUIDITY GUIDE ---
+    # --- TRADING RULES ---
     st.divider()
-    with st.expander("📜 Essential Trading Rules & Liquidity Guide"):
+    with st.expander("Essential Trading Rules & Liquidity Guide"):
         st.markdown(f"""
-        ### 1. How to find Laggard Liquidity
-        To get the correct **Liquidity ($)** value:
-        1. Open the **{lag_n if lag_n else 'Laggard'}** market on Polymarket.
-        2. Look at the **Order Book** 'Asks' (the SELL orders for YES).
+        **1. How to find Laggard Liquidity**
+        To get the correct Liquidity ($) value:
+        1. Open the {lag_n if lag_n else 'Laggard'} market on Polymarket.
+        2. Look at the Order Book 'Asks'.
         3. Find the total dollar depth at the current best price.
         
-        ### 2. The 'Intuitive Link' Rule
-        Only scan markets that move on the same information. Unrelated markets will show "False Positive" gaps.
+        **2. The Intuitive Link Rule**
+        Only scan markets that move on the same information. Unrelated markets will show false positive gaps.
 
-        ### 3. The Lead Efficiency Rule
-        If **Lead Entropy** is Red (> 0.7), the Lead is just guessing. High entropy signals are usually just noise.
+        **3. The Lead Efficiency Rule**
+        If Lead Entropy is Red (> 0.7), the Lead is noisy. High entropy signals are usually just noise.
 
-        ### 4. Slippage Protection
-        The **Recommended Bet** is automatically capped by the Liquidity you provide. Do not exceed this amount to avoid moving the market against yourself.
+        **4. Slippage Protection**
+        The Recommended Bet is automatically capped by the Liquidity you provide. Do not exceed this amount.
         """)
