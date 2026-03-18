@@ -140,7 +140,7 @@ with tab1:
 
 # --- TAB 2: DIVERGENCE SCANNER ---
 with tab2:
-    st.header("Divergence Pro Scanner")
+    st.header("Divergence Scanner")
     
     with st.expander("Manual Market Inputs", expanded=True):
         col1, col2 = st.columns(2)
